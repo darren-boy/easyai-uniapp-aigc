@@ -1,0 +1,159 @@
+# 非 host 版本, 容器内部使用桥接通信
+# (各项参数均有详细的说明，理论情况下保持默认即可运行)
+#version: '3'
+services:
+  comfyAI-web:
+    container_name: comfyAI-web
+    #更新修改冒号后面的版本号
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/one-ai:${VERSION}
+    #端口冲突时，只需要修改前面的端口比如修改为，3011:3010
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+      - "${WEB_PORT}:3010"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.8
+    depends_on:
+      - comfy-server
+    restart: always
+    environment:
+      # 默认服务器地址，本地不需要更改，云服务需要修改为云端IP，并放行对应端口
+      - NUXT_PUBLIC_BASE_APIURL=${NUXT_PUBLIC_BASE_APIURL}
+      #增加服务端渲染配置，保持默认即可，不需要修改！
+      - NUXT_PUBLIC_BASE_SSRURL=http://172.21.0.6:3001
+      # 默认的服务器websocket地址，本地不需要更改，云服务需要修改为云端IP，并放行对应端口
+      - NUXT_PUBLIC_BASE_SOCKETURL=${NUXT_PUBLIC_BASE_SOCKETURL}
+      #      - NUXT_PUBLIC_BASE_SOCKETURL=http://121.43.125.46:3002
+  comfy-server:
+    container_name: comfy-server
+    # 阿里云镜像地址
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/comfy-server:${VERSION} # 阿里云
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+      - "${SERVER_HTTP_PORT}:3001"    #http端口
+      - "${SERVER_WS_PORT}:3002"    #websocket端口
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.6
+    depends_on:
+      - mysql
+      - mongo
+      - redis
+    restart: always
+    environment:
+      #  MongoDB配置，用户管理，不会配置的话保持默认即可
+      - CONFIG_DB_MONGO_URI=mongodb://172.21.0.3:27017
+      - CONFIG_DB_MONGO_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - CONFIG_DB_MONGO_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      #  Redis配置，队列缓存，不会配置的话保持默认即可
+      - CONFIG_COMFYUI_QUENE_REDIS_HOST=172.21.0.4
+      - CONFIG_COMFYUI_QUENE_REDIS_PORT=6379
+      - CONFIG_COMFYUI_QUENE_REDIS_PASSWORD=
+      #大模型ONEAPI数据库配置,不会配置的话保持默认即可
+      - ONEAPI_MYSQL_HOST=172.21.0.2
+      - ONEAPI_MYSQL_USERNAME=root
+      - ONEAPI_MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - ONEAPI_MYSQL_DATABASE=oneapi
+      #One API 路径，自动注册大模型账号
+      - CONFIG_ONEAPIURL=http://172.21.0.5:3000
+      #日志与调试
+      - LOG_LEVEL=${LOG_LEVEL}
+      #Token过期时间，单位秒
+      - CONFIG_TOKEN_EXPIRE=${CONFIG_TOKEN_EXPIRE}
+      - CONFIG_JWT_SECRET=${CONFIG_JWT_SECRET}
+
+  #  使用大语言模型的后端接口
+  oneapi:
+#        提供oneapi的阿里云镜像下载地址，避免因为网络问题无法拉取镜像的问题
+#    image: justsong/one-api
+    image: registry.cn-shanghai.aliyuncs.com/mynewkey/one-api:latest
+    container_name: oneapi-mysql
+    restart: always
+    ports:
+      - "${ONEAPI_PORT}:3000"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.5
+    depends_on:
+      - mysql
+    environment:
+      - SQL_DSN=root:${MYSQL_ROOT_PASSWORD}@tcp(172.21.0.2:3306)/oneapi
+      - TZ=Asia/Shanghai
+  mongo:
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/mongo-aliyun:latest
+#    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/mongo-aliyun:4.4
+    container_name: mongo
+    restart: unless-stopped
+    privileged: true
+    # 生产环境建议不要暴露
+    ports:
+      - "${MONGO_PORT}:27017"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.3
+    environment:
+      # 这里的配置只有首次运行生效。修改后，重启镜像是不会生效的。需要把持久化数据删除再重启，才有效果
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - /usr/local/mongo/data:/data/db
+
+  #  大语言模型数据库
+  mysql:
+    #阿里云镜像加速
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/mysql-aliyun:latest
+#    image: mysql:5.7
+    container_name: mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT}:3306"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.2
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=oneapi
+    volumes:
+      - mysql_data:/var/lib/mysql
+  redis:
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/redis-aliyun:latest
+    container_name: redis
+    restart: always
+    ports:
+      - "${REDIS_PORT}:6379"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.4
+  watchtower:
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/watchtower-aliyun:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --debug --http-api-update
+    environment:
+      - WATCHTOWER_HTTP_API_TOKEN=sk-ofJoA4atj9dki6AvDtI1qwxdcejjDQ
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+    ports:
+      - "${WATCHTOWER_PORT}:8080"
+    networks:
+      comfyai:
+        ipv4_address: 172.21.0.9
+volumes:
+  mysql_data:
+networks:
+  comfyai:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+
+
