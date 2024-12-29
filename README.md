@@ -1,4 +1,4 @@
-# easyai-uniapp
+# EasyAI-uniapp-aigc
 
 EasyAI小程序，将ComfyUI工作流进行封装，转为全平台应用，支持Android、iOS、H5、微信、支付宝、百度、字节跳动、快应用等平台。
 
