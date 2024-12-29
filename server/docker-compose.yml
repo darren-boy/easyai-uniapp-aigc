@@ -99,11 +99,17 @@ services:
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
     volumes:
       - /usr/local/mongo/data:/data/db
+    healthcheck:
+      test: [ "CMD", "mongo", "--eval", "db.runCommand({ connectionStatus: 1 })" ]
+      interval: 30s
+      retries: 3
+      timeout: 10s
+      start_period: 10s
 
   #  大语言模型数据库
   mysql:
     #阿里云镜像加速
-    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/mysql-aliyun:latest
+    image: registry.cn-shanghai.aliyuncs.com/comfy-ai/mysql-aliyun:5.7
 #    image: mysql:5.7
     container_name: mysql
     healthcheck:
